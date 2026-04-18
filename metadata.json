@@ -1,0 +1,6 @@
+{
+  "name": "Tour It AI",
+  "description": "Intelligent travel planning assistant for Bangalore, providing personalized and practical activity plans.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}
