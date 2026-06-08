@@ -19,3 +19,16 @@ export interface ChatMessage {
   role: 'user' | 'model';
   content: string;
 }
+
+export interface NluIntent {
+  destination: string;
+  startDate: string;
+  endDate: string;
+  duration: string;
+  groupSize: string;
+  groupType: string;
+  budget: string;
+  mood: string;
+  transport: string;
+}
+

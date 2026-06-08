@@ -44,6 +44,20 @@ export default function ChatInterface({ onPlanGenerated, onLoadingChange, onLoca
   }, [onLocationUpdate]);
 
   useEffect(() => {
+    const handleInsert = (e: Event) => {
+      const customEvent = e as CustomEvent<{ text: string }>;
+      if (customEvent.detail?.text) {
+        setInput(customEvent.detail.text);
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }
+    };
+    window.addEventListener('insert-chat-input', handleInsert);
+    return () => window.removeEventListener('insert-chat-input', handleInsert);
+  }, []);
+
+  useEffect(() => {
     onLoadingChange?.(isLoading);
   }, [isLoading, onLoadingChange]);
 
