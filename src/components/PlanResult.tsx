@@ -1,9 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import MapDisplay from './MapDisplay';
 import WeatherWidget from './WeatherWidget';
 import LiveConciergeFeed from './LiveConciergeFeed';
 import { Activity, NluIntent } from '@/src/types';
+import { 
+  getLikedActivities,
+  getDislikedActivities,
+  saveActivityLikeState,
+  getCrowdOverrides,
+  logTripFeedback,
+  getSavedTrips
+} from '../lib/learningEngine';
 import { 
   Map as MapIcon, 
   Navigation,
@@ -17,6 +25,7 @@ import {
   Luggage,
   Star,
   ThumbsUp,
+  ThumbsDown,
   ChevronLeft,
   ChevronRight,
   BookOpen,
@@ -27,7 +36,9 @@ import {
   Plus,
   Minus,
   TrendingUp,
-  Info
+  Heart,
+  Award,
+  Info 
 } from 'lucide-react';
 
 const SOCIAL_PROOF_SNIPPETS = [
@@ -48,13 +59,32 @@ function getSocialProof(name: string) {
   hash = Math.abs(hash);
 
   const baseRating = 4.2;
-  const ratingValue = (baseRating + (hash % 8) * 0.1).toFixed(1);
-  const reviewCount = 200 + (hash % 91) * 75;
-  const recommendation = 88 + (hash % 11);
+  let ratingVal = baseRating + (hash % 8) * 0.1;
+  let reviewCount = 200 + (hash % 91) * 75;
+  let recommendation = 88 + (hash % 11);
+
+  // Apply dynamic adaptive crowd intelligence overrides
+  try {
+    const overrides = getCrowdOverrides();
+    const override = overrides[name];
+    if (override) {
+      ratingVal += override.ratingValueOffset;
+      reviewCount += override.reviewsCountOffset;
+      if (override.likesCountOffset > 0) {
+        recommendation = Math.min(100, recommendation + override.likesCountOffset * 2);
+      } else if (override.likesCountOffset < 0) {
+        recommendation = Math.max(40, recommendation + override.likesCountOffset * 5);
+      }
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  ratingVal = Math.max(1.0, Math.min(5.0, ratingVal));
   const saying = SOCIAL_PROOF_SNIPPETS[hash % SOCIAL_PROOF_SNIPPETS.length];
 
   return {
-    rating: parseFloat(ratingValue),
+    rating: parseFloat(ratingVal.toFixed(1)),
     reviews: reviewCount.toLocaleString('en-IN'),
     recommendation,
     saying
@@ -136,6 +166,32 @@ export default function PlanResult({ planText, isLoading, onActivityClick, selec
   const [deselectedActivities, setDeselectedActivities] = useState<Set<string>>(new Set());
   const [customTravelers, setCustomTravelers] = useState<number | null>(null);
   const [isBreakdownExpanded, setIsBreakdownExpanded] = useState<boolean>(false);
+
+  const [likedList, setLikedList] = useState<string[]>([]);
+  const [dislikedList, setDislikedList] = useState<string[]>([]);
+  const [overallRating, setOverallRating] = useState<number>(0);
+  const [hasSubmittedFeedback, setHasSubmittedFeedback] = useState<boolean>(false);
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
+
+  // Sync state reactively with memory engine
+  useEffect(() => {
+    setLikedList(getLikedActivities());
+    setDislikedList(getDislikedActivities());
+  }, [refreshTrigger]);
+
+  useEffect(() => {
+    const handleMemoryUpdate = () => {
+      setRefreshTrigger(prev => prev + 1);
+    };
+    window.addEventListener('tourit_memory_updated', handleMemoryUpdate);
+    return () => window.removeEventListener('tourit_memory_updated', handleMemoryUpdate);
+  }, []);
+
+  // Reset feedback state on new plan
+  useEffect(() => {
+    setHasSubmittedFeedback(false);
+    setOverallRating(0);
+  }, [planText]);
 
   if (!planText && !isLoading) return null;
 
@@ -1191,8 +1247,10 @@ export default function PlanResult({ planText, isLoading, onActivityClick, selec
                       {/* User Rating Score Summary & Social Proof */}
                       {(() => {
                         const proof = getSocialProof(activity.name);
+                        const isLiked = likedList.includes(activity.name);
+                        const isDisliked = dislikedList.includes(activity.name);
                         return (
-                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-brand-muted font-medium pb-1.5 pt-0.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-brand-muted font-medium pb-2 pt-1 select-none">
                             <div className="flex items-center gap-0.5 bg-amber-500/5 px-2 py-0.5 rounded border border-amber-500/10 text-amber-700 font-bold text-[10px]">
                               <Star className="w-3 h-3 fill-amber-500 text-amber-500 shrink-0" />
                               <span>{proof.rating}</span>
@@ -1203,6 +1261,51 @@ export default function PlanResult({ planText, isLoading, onActivityClick, selec
                               <ThumbsUp className="w-2.5 h-2.5 shrink-0" />
                               <span>{proof.recommendation}% recommended</span>
                             </div>
+
+                            <span className="text-brand-muted/40 text-[10px]">•</span>
+
+                            {/* Dynamic Likes/Dislikes feedback hooks */}
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                title="Like this place"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  saveActivityLikeState(activity.name, isLiked ? null : true);
+                                }}
+                                className={`p-1 rounded border flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                                  isLiked 
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                                    : 'bg-white border-brand-ink/10 text-brand-muted hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-600'
+                                }`}
+                              >
+                                <ThumbsUp className="w-3 h-3 stroke-[2.5]" />
+                              </button>
+
+                              <button
+                                type="button"
+                                title="Dislike this place"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  saveActivityLikeState(activity.name, isDisliked ? null : false);
+                                }}
+                                className={`p-1 rounded border flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                                  isDisliked 
+                                    ? 'bg-red-600 text-white border-red-600 shadow-sm' 
+                                    : 'bg-white border-brand-ink/10 text-brand-muted hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-600'
+                                }`}
+                              >
+                                <ThumbsDown className="w-3 h-3 stroke-[2.5]" />
+                              </button>
+                            </div>
+
+                            {isLiked && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-500/5 px-1.5 py-0.5 rounded border border-emerald-500/10 shrink-0">Liked by you</span>
+                            )}
+                            {isDisliked && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-red-600 bg-red-500/5 px-1.5 py-0.5 rounded border border-red-500/10 shrink-0">Filtered from suggestions</span>
+                            )}
+
                             <span className="hidden lg:inline text-brand-muted/40 text-[10px]">•</span>
                             <span className="hidden lg:inline text-[10px] italic font-medium text-brand-muted/80 truncate max-w-xs font-sans">{proof.saying}</span>
                           </div>
@@ -1363,7 +1466,7 @@ export default function PlanResult({ planText, isLoading, onActivityClick, selec
                   onClick={() => {
                     const cleanText = option.replace(/^[🔁🍺⚡🧘\-*+.]\s*/, '').trim();
                     window.dispatchEvent(new CustomEvent('insert-chat-input', { 
-                      detail: { text: `Modify my plan: ${cleanText}` } 
+                       detail: { text: `Modify my plan: ${cleanText}` } 
                     }));
                   }}
                   className="px-4 py-2 hover:bg-brand-accent hover:text-white hover:border-brand-accent transition-all duration-300 bg-white border border-brand-ink/10 rounded-full text-xs font-semibold text-brand-ink/80 flex items-center gap-2 cursor-pointer shadow-sm hover:shadow-md"
@@ -1374,6 +1477,150 @@ export default function PlanResult({ planText, isLoading, onActivityClick, selec
             </div>
           </div>
         )}
+
+        {/* 🧠 CONCIERGE MEMORY & LEARNING PORTAL */}
+        <div className="pt-8 border-t border-brand-ink/10 space-y-6">
+          <div className="bg-brand-accent/[0.02] border border-brand-accent/15 rounded-2xl p-6 md:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-brand-accent/10 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-brand-accent/10 text-brand-accent animate-pulse">
+                  <Award className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-serif text-lg font-bold">Feedback Loop & AI Personalization</h4>
+                  <p className="text-[10px] uppercase tracking-wider text-brand-muted font-bold">Continuous Learning Engine</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                <div className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md border border-emerald-150">
+                  👍 {likedList.length} LIKES
+                </div>
+                <div className="px-2.5 py-1 bg-red-50 text-red-700 rounded-md border border-red-150">
+                  👎 {dislikedList.length} DISLIKES
+                </div>
+                <div className="px-2.5 py-1 bg-brand-muted/10  text-brand-ink rounded-md border border-brand-ink/5">
+                  📁 {getSavedTrips().length} TRIPS LOGS
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+              <div className="md:col-span-7 space-y-4">
+                <div className="space-y-1.5">
+                  <h5 className="text-xs uppercase tracking-widest font-bold text-brand-muted">Memory Strength & Crowdsourced intelligence</h5>
+                  <p className="text-xs leading-relaxed text-brand-ink/80">
+                    Our elite recommender automatically prioritizes similar vibes, areas, and costs for places you upvote, and strictly filters out anything similar to your disliked attractions. Ratings calibrate in real-time based on your clicks!
+                  </p>
+                </div>
+
+                {likedList.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] uppercase tracking-wider font-bold text-emerald-600 block">Personal Favorites Catalog:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {likedList.map((place) => (
+                        <span key={place} className="text-[10px] font-medium bg-emerald-500/5 text-emerald-700 border border-emerald-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
+                          ✨ {place}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {dislikedList.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] uppercase tracking-wider font-bold text-red-600 block">Restricted from Future Recommendations:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {dislikedList.map((place) => (
+                        <span key={place} className="text-[10px] font-medium bg-red-500/5 text-red-700 border border-red-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
+                          🚫 {place}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(likedList.length > 0 || dislikedList.length > 0 || getSavedTrips().length > 0) && (
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem('tourit_liked_activities');
+                      localStorage.removeItem('tourit_disliked_activities');
+                      localStorage.removeItem('tourit_saved_trips');
+                      localStorage.removeItem('tourit_crowd_overrides');
+                      setRefreshTrigger(p => p + 1);
+                    }}
+                    className="text-[9px] uppercase tracking-widest font-bold text-red-500 hover:text-white px-2.5 py-1.5 rounded-lg border border-red-500/20 bg-transparent hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer inline-flex items-center gap-1"
+                  >
+                    Clear Personal memory & Reset Adaptive Prompt
+                  </button>
+                )}
+              </div>
+
+              <div className="md:col-span-1 border-r editorial-border h-full hidden md:block"></div>
+
+              <div className="md:col-span-4 bg-white border editorial-border p-5 rounded-xl space-y-4 shadow-sm">
+                <span className="text-[9px] uppercase tracking-[1.5px] font-bold text-brand-muted block">Rate & Save This Trip</span>
+                
+                {hasSubmittedFeedback ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="space-y-2 text-center py-4"
+                  >
+                    <div className="w-10 h-10 bg-emerald-500/10 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 animate-bounce">
+                      <Check className="w-5 h-5 stroke-[3]" />
+                    </div>
+                    <span className="text-xs font-bold text-emerald-700 block">Feedback Saved Successfully!</span>
+                    <p className="text-[10px] text-brand-muted leading-relaxed">
+                      Recommendations updated with this trip's parameters and ratings. Future plans will fit you even better.
+                    </p>
+                  </motion.div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-center gap-1.5 py-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          onClick={() => setOverallRating(star)}
+                          className="focus:outline-none transition-transform active:scale-130 duration-200 cursor-pointer"
+                        >
+                          <Star 
+                            className={`w-6 h-6 transition-all ${
+                              overallRating >= star 
+                                ? 'fill-amber-500 text-amber-500 scale-110 drop-shadow-sm' 
+                                : 'text-brand-ink/15 hover:text-amber-500/60'
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      disabled={overallRating === 0}
+                      onClick={() => {
+                        logTripFeedback({
+                          destination: nluIntent?.destination || 'India',
+                          budget: nluIntent?.budget || 'balanced',
+                          duration: activities.length > 0 ? parseInt(activities[0].timeNeeded.split('|')[0]) || 1 : 1,
+                          vibes: nluIntent?.mood ? [nluIntent.mood] : [],
+                          suggestedActivities: activities.map(a => a.name),
+                          userRating: overallRating,
+                          likedActivities: likedList.filter(name => activities.some(a => a.name === name)),
+                          dislikedActivities: dislikedList.filter(name => activities.some(a => a.name === name))
+                        });
+                        setHasSubmittedFeedback(true);
+                        setRefreshTrigger(p => p + 1);
+                      }}
+                      className="w-full text-[10px] uppercase tracking-widest font-bold py-2.5 px-4 rounded-xl border border-brand-accent bg-transparent text-brand-accent hover:bg-brand-accent hover:text-white transition-all duration-300 disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-center"
+                    >
+                      Log Trip Feedback Loop
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       </motion.div>
 
       {hasClosingSignature && (

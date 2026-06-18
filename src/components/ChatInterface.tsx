@@ -1,10 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Bot, Loader2, Clock, LocateFixed } from 'lucide-react';
+import { Send, User, Bot, Loader2, Clock, LocateFixed, Compass, History, Utensils, Wind, Sparkles, Gem } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatMessage } from '@/src/types';
 import { generatePlan, generatePlanStream } from '@/src/lib/gemini';
+
+const VIBES = [
+  { name: 'Adventure', icon: Compass, color: 'hover:border-orange-500/30 hover:bg-orange-500/5 hover:text-orange-600', activeStyle: 'bg-orange-600 text-white border-orange-600 shadow-sm shadow-orange-600/10' },
+  { name: 'Heritage', icon: History, color: 'hover:border-amber-500/30 hover:bg-amber-500/5 hover:text-amber-600', activeStyle: 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-600/10' },
+  { name: 'Culinary', icon: Utensils, color: 'hover:border-red-500/30 hover:bg-red-500/5 hover:text-red-600', activeStyle: 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-600/10' },
+  { name: 'Relaxation', icon: Wind, color: 'hover:border-teal-500/30 hover:bg-teal-500/5 hover:text-teal-600', activeStyle: 'bg-teal-600 text-white border-teal-600 shadow-sm shadow-teal-600/10' },
+  { name: 'Spiritual', icon: Sparkles, color: 'hover:border-purple-500/30 hover:bg-purple-500/5 hover:text-purple-600', activeStyle: 'bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-600/10' },
+  { name: 'Luxury', icon: Gem, color: 'hover:border-yellow-500/30 hover:bg-yellow-500/5 hover:text-yellow-600', activeStyle: 'bg-yellow-600 text-white border-yellow-600 shadow-sm shadow-yellow-600/10' }
+];
 
 interface ChatInterfaceProps {
   onPlanGenerated: (plan: string) => void;
@@ -24,6 +33,15 @@ export default function ChatInterface({ onPlanGenerated, onLoadingChange, onLoca
   const [isLoading, setIsLoading] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number, lng: number, area?: string } | null>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
+  const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
+
+  const toggleVibe = (vibeName: string) => {
+    setSelectedVibes(prev => 
+      prev.includes(vibeName)
+        ? prev.filter(v => v !== vibeName)
+        : [...prev, vibeName]
+    );
+  };
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -83,7 +101,8 @@ export default function ChatInterface({ onPlanGenerated, onLoadingChange, onLoca
     let finalDuration = customDuration ? parseInt(customDuration) : duration;
     if (isNaN(finalDuration) || finalDuration < 1) finalDuration = 1;
     
-    const budgetContext = `[BUDGET: ${budgetTier.toUpperCase()}] [DURATION: ${finalDuration} DAY(S)] `;
+    const vibePrefix = selectedVibes.length > 0 ? `[VIBES: ${selectedVibes.join(', ').toUpperCase()}] ` : '';
+    const budgetContext = `[BUDGET: ${budgetTier.toUpperCase()}] [DURATION: ${finalDuration} DAY(S)] ${vibePrefix}`;
     const userMessage: ChatMessage = { role: 'user', content: budgetContext + input };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -241,6 +260,34 @@ export default function ChatInterface({ onPlanGenerated, onLoadingChange, onLoca
             <span>1 Day</span>
             <span>7 Days</span>
             <span>14 Days</span>
+          </div>
+        </div>
+
+        {/* Vibe Selection Section */}
+        <div className="space-y-2 pt-1 pb-3 border-b editorial-border">
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <Compass className="w-3 h-3 text-brand-accent animate-pulse" />
+            <span className="text-[9px] md:text-[10px] uppercase tracking-widest font-bold text-brand-muted">Vibe Preferences</span>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5 pt-1">
+            {VIBES.map((vibe) => {
+              const Icon = vibe.icon;
+              const isSelected = selectedVibes.includes(vibe.name);
+              return (
+                <button
+                  key={vibe.name}
+                  onClick={() => toggleVibe(vibe.name)}
+                  className={`flex items-center gap-1.5 px-2 md:px-3 py-2 rounded-xl border text-[9px] md:text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ease-out cursor-pointer active:scale-95 ${
+                    isSelected
+                      ? vibe.activeStyle
+                      : `border-brand-ink/5 bg-transparent text-brand-muted ${vibe.color}`
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{vibe.name}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { ChatMessage } from "../types";
+import { getUserMemoryContext } from "./learningEngine";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
@@ -175,7 +176,8 @@ Context for Generation:
 - Minimize travel time and avoid long jumps.
 - Group nearby places logically.
 - Assume group type and mood from user request if not explicit.
-- Real-world executable plan for India.`;
+- Real-world executable plan for India.
+${getUserMemoryContext()}`;
 
   contents.push({
     role: 'user',
@@ -219,7 +221,8 @@ Context for Generation:
 - Minimize travel time and avoid long jumps.
 - Group nearby places logically.
 - Assume group type and mood from user request if not explicit.
-- Real-world executable plan for India.`;
+- Real-world executable plan for India.
+${getUserMemoryContext()}`;
 
   contents.push({
     role: 'user',
