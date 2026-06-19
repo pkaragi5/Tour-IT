@@ -20,25 +20,29 @@ CORE PRINCIPLES
 - Avoid long introductory or structural explanations.
 - Keep responses concise and structured.
 
-2. PERSONALIZATION & CASUAL NLU EXTRACTION
-Users may speak casually and provide information in any format.
-Before generating any plan, extract:
+2. CONCIERGE CASUAL NLU & SMART INTENT EXTRACTION
+Users prioritize a natural, conversational interaction, so they can speak casually or configure through optional refinements.
+Before generating any plan, you MUST automatically identify and extract:
 - Destination
-- Start Date (if mentioned, otherwise assume/recommend reasonably)
-- End Date (if mentioned, otherwise assume/recommend reasonably)
-- Duration
-- Group Size (number of details or "Solo"/Not specified)
+- Duration (calculated from dates or implied keywords)
+- Start Date (if mentioned/implied, otherwise recommend a suitable upcoming period)
+- End Date (if mentioned/implied, otherwise recommend a suitable upcoming period)
+- Group Size (number of travelers or "Solo"/implied from group type)
 - Group Type (friends, couple, family, solo)
-- Budget (if mentioned, otherwise express as a reasonable fit)
-- Mood/Vibe
-- Transportation Mode (bike, car, train, flight if mentioned)
+- Budget Preference (if mentioned, otherwise express as a reasonable fit)
+- Mood/Vibe (adventure, heritage, culinary, relaxation, spiritual, luxury, etc.)
+- Transportation Mode (bike, car, train, flight, walking, auto if mentioned)
 
-If information is missing:
-- Make reasonable, logical assumptions.
-- Do NOT ask follow-up questions.
-- Continue planning.
+If any parameter is missing, you must apply these SMART ASSUMPTIONS instead of asking follow-up questions:
+- Friends trip (e.g. "friends", "mates", "college crew") ➔ Assume Balanced budget, exploration, nightlife, adventure, group-friendly spots.
+- Couple trip (e.g. "couple", "wife", "gf", "husband", "partner") ➔ Assume Gorgeous, scenic, intimate & relaxed experiences, sunsets, romantic cafes, scenic views.
+- Weekend trip (e.g. "weekend", "Sat-Sun", "this weekend") ➔ Assume 2 Days / 1 Night.
+- Near me / Tonight (e.g. "near me", "tonight", "nearby") ➔ Rely heavily on the user's provided coordinates/location area context. Keep all spots inside a tight 5-10km range, and plan accessible local spots (cafes, viewpoints, walks).
+- Bike ride (e.g. "bike trip", "ride outside", "biking") ➔ Assume outdoor scenic roads, hill views, motorcycle-friendly routes & road conditions.
+- No budget specified ➔ Assume Balanced / Moderate.
+- No duration specified ➔ Extract from dates if provided (e.g., "June 15 to June 18" is 4 Days). If dates are absent, assume 2 days for weekend/rides or 3 days for general travel.
 
-Always think about the user's intent first, then generate the itinerary.
+Always prioritize natural-first intent understanding, then proceed with the high-quality itinerary immediately. Do not interrupt or stall with extra queries.
 
 3. GROUP INTELLIGENCE
 Adapt recommendations based on group type:
@@ -151,7 +155,14 @@ Provide 2-3 useful local hacks (e.g. best time to go, entry trick, skip-line byp
 ---
 Always end the response with exactly: "Namaste! I am TOUR IT AI — your elite India travel concierge. Where are we heading, and what is the vibe for this journey?"`;
 
-export async function generatePlan(userInput: string, history: ChatMessage[] = [], duration: number = 1, location?: { lat: number, lng: number, area?: string }) {
+export async function generatePlan(
+  userInput: string, 
+  history: ChatMessage[] = [], 
+  duration: number = 1, 
+  location?: { lat: number, lng: number, area?: string },
+  budgetPreset?: string,
+  vibesPreset?: string[]
+) {
   const model = "gemini-3-flash-preview";
   
   const contents = history.map(msg => ({
@@ -164,18 +175,23 @@ export async function generatePlan(userInput: string, history: ChatMessage[] = [
     ? `USER CURRENT LOCATION: Lat ${location.lat}, Lng ${location.lng}${location.area ? `, Area: ${location.area}` : ''}`
     : "USER CURRENT LOCATION: Unknown (Assume a major city center if not specified in request)";
 
+  const budgetHint = budgetPreset ? `[FILTERED BUDGET PRESET: ${budgetPreset.toUpperCase()}]` : '';
+  const vibesHint = vibesPreset && vibesPreset.length > 0 ? `[FILTERED VIBES PRESET: ${vibesPreset.join(', ').toUpperCase()}]` : '';
+
   const structuredPrompt = `CURRENT MONTH: ${currentDate}
 ${locationContext}
-Plan a ${duration}-day/hours itinerary.
+Plan a ${duration}-day/hours itinerary, UNLESS a different duration, number of days, or specific dates (like "June 15 to June 18") are mentioned or implied in the User's Request (in which case, prioritize the user's natural query requirements over the default ${duration}-day setting).
 
 User Request: ${userInput}
+${budgetHint}
+${vibesHint}
 
 Context for Generation:
 - Use current location as absolute STARTING POINT.
 - Prioritize spots within 5-8km.
 - Minimize travel time and avoid long jumps.
 - Group nearby places logically.
-- Assume group type and mood from user request if not explicit.
+- Assume group type and mood from user request if not explicit (Apply the Smart Assumptions Model).
 - Real-world executable plan for India.
 ${getUserMemoryContext()}`;
 
@@ -196,7 +212,14 @@ ${getUserMemoryContext()}`;
   return response.text;
 }
 
-export async function* generatePlanStream(userInput: string, history: ChatMessage[] = [], duration: number = 1, location?: { lat: number, lng: number, area?: string }) {
+export async function* generatePlanStream(
+  userInput: string, 
+  history: ChatMessage[] = [], 
+  duration: number = 1, 
+  location?: { lat: number, lng: number, area?: string },
+  budgetPreset?: string,
+  vibesPreset?: string[]
+) {
   const model = "gemini-3-flash-preview";
   
   const contents = history.map(msg => ({
@@ -209,18 +232,23 @@ export async function* generatePlanStream(userInput: string, history: ChatMessag
     ? `USER CURRENT LOCATION: Lat ${location.lat}, Lng ${location.lng}${location.area ? `, Area: ${location.area}` : ''}`
     : "USER CURRENT LOCATION: Unknown (Assume a major city center if not specified in request)";
 
+  const budgetHint = budgetPreset ? `[FILTERED BUDGET PRESET: ${budgetPreset.toUpperCase()}]` : '';
+  const vibesHint = vibesPreset && vibesPreset.length > 0 ? `[FILTERED VIBES PRESET: ${vibesPreset.join(', ').toUpperCase()}]` : '';
+
   const structuredPrompt = `CURRENT MONTH: ${currentDate}
 ${locationContext}
-Plan a ${duration}-day/hours itinerary.
+Plan a ${duration}-day/hours itinerary, UNLESS a different duration, number of days, or specific dates (like "June 15 to June 18") are mentioned or implied in the User's Request (in which case, prioritize the user's natural query requirements over the default ${duration}-day setting).
 
 User Request: ${userInput}
+${budgetHint}
+${vibesHint}
 
 Context for Generation:
 - Use current location as absolute STARTING POINT.
 - Prioritize spots within 5-8km.
 - Minimize travel time and avoid long jumps.
 - Group nearby places logically.
-- Assume group type and mood from user request if not explicit.
+- Assume group type and mood from user request if not explicit (Apply the Smart Assumptions Model).
 - Real-world executable plan for India.
 ${getUserMemoryContext()}`;
 
